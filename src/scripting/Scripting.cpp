@@ -44,8 +44,8 @@ Scripting::Scripting(const Paths& aPaths, VKBindings& aBindings, D3D12& aD3D12, 
     , m_d3d12(aD3D12)
     , m_mapper(m_lua.AsRef(), m_global)
 {
-    CreateLogger(GetAbsolutePath(L"scripting.log", aPaths.CETRoot(), true), "scripting");
-    CreateLogger(GetAbsolutePath(L"gamelog.log", aPaths.CETRoot(), true), "gamelog");
+    CreateLogger(aPaths.CETRoot() / "scripting.log", "scripting");
+    CreateLogger(aPaths.CETRoot() / "gamelog.log", "gamelog");
 }
 
 void Scripting::Initialize()
@@ -59,7 +59,7 @@ void Scripting::Initialize()
 
     // make sure to set package path to current directory scope
     // as this could get overriden by LUA_PATH environment variable
-    luaVm["package"]["path"] = ".\\?.lua";
+    luaVm["package"]["path"] = "./?.lua";
 
     sol_ImGui::InitBindings(luaVm);
 
@@ -97,8 +97,44 @@ void Scripting::Initialize()
 
     luaGlobal["ModArchiveExists"] = [this](const std::string& acArchiveName) -> bool
     {
-        const auto path = GetLuaPath(acArchiveName, m_paths.ArchiveModsRoot(), false);
-        return path.empty();
+        bool archiveExists = false;
+
+        const auto cAbsPath = absolute(m_paths.ArchiveModsRoot() / acArchiveName);
+        const auto cRelPathStr = relative(cAbsPath, m_paths.ArchiveModsRoot()).native();
+
+        if (cRelPathStr.find(L"..") != std::string::npos)
+            archiveExists = false;
+        else
+            archiveExists = exists(cAbsPath);
+
+        // only need to check if it wasn't already found
+        if (!archiveExists)
+        {
+            // check to see if a REDmod archive exists
+            const auto cREDModAbsPathRoot = absolute(m_paths.REDmodsRoot());
+
+            // parse recursively to find the archive
+            for (auto dir_iter = std::filesystem::recursive_directory_iterator{cREDModAbsPathRoot};
+                 dir_iter != std::filesystem::recursive_directory_iterator{};
+                ++dir_iter)
+            {
+                // only check if we're in a subdirectory that is two folders deep (e.g. mod1/tweaks or mod2/archives)
+                // the 0th depth is 1 folder deep
+                if (dir_iter.depth() == 1)
+                {
+                    auto const& dir_entry = *dir_iter;
+                    if (dir_entry.is_directory() && dir_entry.path().filename() == "archives")
+                    {
+                        // or is in case we parsed another "archives" directory and it wasn't found
+                        archiveExists |= exists(dir_entry.path() / acArchiveName);
+                        if (archiveExists)
+                            break;
+                    }
+                }
+            }
+        }
+
+        return archiveExists;
     };
 
     // fake game object to prevent errors from older autoexec.lua
@@ -106,25 +142,11 @@ void Scripting::Initialize()
     luaGlobal["Game"] = luaVm["Game"];
 
     // execute autoexec.lua inside our default script directory
-    const auto path = GetAbsolutePath(L"scripts", m_paths.CETRoot(), false);
-    if (path.empty())
-        spdlog::get("scripting")->warn("WARNING: missing CET scripts folder!");
-    {
-        const auto previousCurrentPath = std::filesystem::current_path();
-        current_path(path);
-        if (std::filesystem::exists(L"autoexec.lua"))
-        {
-            const auto result = luaVm.do_file("autoexec.lua");
-            if (!result.valid())
-            {
-                const sol::error cError = result;
-                spdlog::get("scripting")->error(cError.what());
-            }
-        }
-        else
-            spdlog::get("scripting")->warn("WARNING: missing CET autoexec.lua!");
-        current_path(previousCurrentPath);
-    }
+    current_path(m_paths.CETRoot() / "scripts");
+    if (std::filesystem::exists("autoexec.lua"))
+        luaVm.do_file("autoexec.lua");
+    else
+        spdlog::get("scripting")->warn("WARNING: missing CET autoexec.lua!");
 
     // initialize sandbox
     m_sandbox.Initialize();
@@ -852,7 +874,7 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType
             if (hasData)
             {
                 sol::state_view v(aObject.lua_state());
-                str = v["tostring"](aObject).get<std::string>();
+                str = v["tostring"](aObject);
             }
             result.value = apAllocator->New<RED4ext::CString>(str.c_str());
         }
@@ -992,7 +1014,7 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType
                 else if (IsLuaCData(aObject))
                 {
                     sol::state_view v(aObject.lua_state());
-                    std::string str = v["tostring"](aObject).get<std::string>();
+                    std::string str = v["tostring"](aObject);
                     hash = std::stoull(str);
                 }
 
