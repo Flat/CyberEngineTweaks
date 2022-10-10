@@ -4,7 +4,6 @@
 
 #include "FunctionOverride.h"
 #include "GameOptions.h"
-#include "Texture.h"
 
 #include <sol_imgui/sol_imgui.h>
 #include <lsqlite3/lsqlite3.h>
@@ -18,12 +17,13 @@
 #include <reverse/WeakReference.h>
 #include <reverse/ResourceAsyncReference.h>
 #include <reverse/Enum.h>
-#include <reverse/TweakDB/TweakDB.h>
 #include <reverse/RTTILocator.h>
 #include <reverse/RTTIHelper.h>
 #include <reverse/RTTIExtender.h>
 #include <reverse/Converter.h>
-#include <reverse/ResourceDepot.h>
+
+#include <reverse/RED4Ext/ResourceDepot.h>
+#include <reverse/TweakDB/TweakDB.h>
 
 #include "Utils.h"
 
@@ -35,7 +35,7 @@
 
 static constexpr bool s_cThrowLuaErrors = true;
 
-static RTTILocator s_stringType{RED4ext::FNV1a("String")};
+static RTTILocator s_stringType{RED4ext::FNV1a64("String")};
 
 Scripting::Scripting(const Paths& aPaths, VKBindings& aBindings, D3D12& aD3D12, Options& aOptions)
     : m_sandbox(this, aBindings)
@@ -219,7 +219,7 @@ void Scripting::PostInitializeScripting()
         },
         // To make it callable for strong reference
         // although it's always valid unless it's null
-        [](StrongReference& aRef) -> bool
+        [](StrongReference&) -> bool
         {
             return true;
         },
@@ -240,7 +240,7 @@ void Scripting::PostInitializeScripting()
 
     luaGlobal["EnumInt"] = [this](Enum& aEnum) -> sol::object
     {
-        static RTTILocator s_uint64Type{RED4ext::FNV1a("Uint64")};
+        static RTTILocator s_uint64Type{RED4ext::FNV1a64("Uint64")};
 
         auto lockedState = m_lua.Lock();
 
@@ -491,7 +491,7 @@ void Scripting::PostInitializeMods()
     luaGlobal["NewObject"] = [this](const std::string& acName, sol::this_environment aEnv) -> sol::object
     {
         auto* pRtti = RED4ext::CRTTISystem::Get();
-        auto* pType = pRtti->GetType(RED4ext::FNV1a(acName.c_str()));
+        auto* pType = pRtti->GetType(RED4ext::FNV1a64(acName.c_str()));
 
         if (!pType)
         {
@@ -547,7 +547,7 @@ void Scripting::PostInitializeMods()
     luaGlobal["DumpType"] = [this](const std::string& acName, bool aDetailed)
     {
         auto* pRtti = RED4ext::CRTTISystem::Get();
-        auto* pType = pRtti->GetClass(RED4ext::FNV1a(acName.c_str()));
+        auto* pType = pRtti->GetClass(RED4ext::FNV1a64(acName.c_str()));
         if (!pType || pType->GetType() == RED4ext::ERTTIType::Simple)
             return Type::Descriptor();
 
@@ -743,15 +743,15 @@ sol::object Scripting::Index(const std::string& acName, sol::this_state aState, 
 
 sol::object Scripting::GetSingletonHandle(const std::string& acName, sol::this_environment aThisEnv)
 {
-    auto locked = m_lua.Lock();
-    auto& lua = locked.Get();
+    auto lockedState = m_lua.Lock();
+    auto& luaState = lockedState.Get();
 
     auto itor = m_singletons.find(acName);
     if (itor != std::end(m_singletons))
-        return make_object(lua, itor->second);
+        return make_object(luaState, itor->second);
 
     auto* pRtti = RED4ext::CRTTISystem::Get();
-    auto* pType = pRtti->GetClass(RED4ext::FNV1a(acName.c_str()));
+    auto* pType = pRtti->GetClass(RED4ext::FNV1a64(acName.c_str()));
     if (!pType)
     {
         const sol::environment cEnv = aThisEnv;
@@ -761,7 +761,7 @@ sol::object Scripting::GetSingletonHandle(const std::string& acName, sol::this_e
     }
 
     auto result = m_singletons.emplace(std::make_pair(acName, SingletonReference{m_lua.AsRef(), pType}));
-    return make_object(lua, result.first->second);
+    return make_object(luaState, result.first->second);
 }
 
 size_t Scripting::Size(RED4ext::CBaseRTTIType* apRttiType)
@@ -800,7 +800,7 @@ sol::object Scripting::ToLua(LockedState& aState, RED4ext::CStackType& aResult)
     }
     else if (pType->GetType() == RED4ext::ERTTIType::Array)
     {
-        auto* pArrayType = static_cast<RED4ext::CArray*>(pType);
+        auto* pArrayType = static_cast<RED4ext::CRTTIArrayType*>(pType);
         const uint32_t cLength = pArrayType->GetLength(aResult.value);
         sol::table result(state, sol::create);
         for (auto i = 0u; i < cLength; ++i)
@@ -838,8 +838,7 @@ sol::object Scripting::ToLua(LockedState& aState, RED4ext::CStackType& aResult)
     return sol::nil;
 }
 
-RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType* apRttiType,
-                                     TiltedPhoques::Allocator* apAllocator)
+RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType* apRttiType, TiltedPhoques::Allocator* apAllocator)
 {
     RED4ext::CStackType result;
 
@@ -855,7 +854,7 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType
             if (hasData)
             {
                 sol::state_view v(aObject.lua_state());
-                str = v["tostring"](aObject);
+                str = v["tostring"](aObject).get<std::string>();
             }
             result.value = apAllocator->New<RED4ext::CString>(str.c_str());
         }
@@ -917,9 +916,9 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType
         {
             if (!hasData || aObject.get_type() == sol::type::table)
             {
-                auto* pArrayType = static_cast<RED4ext::CArray*>(apRttiType);
+                auto* pArrayType = static_cast<RED4ext::CRTTIArrayType*>(apRttiType);
                 auto pMemory = static_cast<RED4ext::DynArray<void*>*>(apAllocator->Allocate(apRttiType->GetSize()));
-                apRttiType->Init(pMemory);
+                apRttiType->Construct(pMemory);
 
                 if (hasData)
                 {
@@ -939,7 +938,7 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType
                             // Break on first incompatible element
                             if (!type.value)
                             {
-                                pArrayType->Destroy(pMemory);
+                                pArrayType->Destruct(pMemory);
                                 pMemory = nullptr;
                                 break;
                             }
@@ -948,7 +947,7 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType
                             pArrayInnerType->Assign(pElement, type.value);
 
                             if (shouldDestroy)
-                                pArrayInnerType->Destroy(type.value);
+                                pArrayInnerType->Destruct(type.value);
                         }
                     }
                 }
@@ -966,7 +965,7 @@ RED4ext::CStackType Scripting::ToRED(sol::object aObject, RED4ext::CBaseRTTIType
                 auto* pScriptRef = apAllocator->New<RED4ext::ScriptRef<void>>();
                 pScriptRef->innerType = innerValue.type;
                 pScriptRef->ref = innerValue.value;
-                apRttiType->GetName(pScriptRef->hash);
+                pScriptRef->hash = apRttiType->GetName();
                 result.value = pScriptRef;
             }
         }
@@ -1026,7 +1025,7 @@ void Scripting::ToRED(sol::object aObject, RED4ext::CStackType& aRet)
     aRet.type->Assign(aRet.value, result.value);
 
     if (aRet.type->GetType() != RED4ext::ERTTIType::Class)
-        aRet.type->Destroy(result.value);
+        aRet.type->Destruct(result.value);
 
     s_scratchMemory.Reset();
 }
