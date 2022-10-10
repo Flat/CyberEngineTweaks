@@ -236,9 +236,7 @@ void LuaVM::Hook(Options& aOptions)
 
         if (pLocation)
         {
-            if (MH_CreateHook(pLocation, &HookTDBIDToStringDEBUG,
-                              reinterpret_cast<void**>(&m_realTDBIDToStringDEBUG)) !=
-                    MH_OK ||
+            if (MH_CreateHook(pLocation, reinterpret_cast<LPVOID>(HookTDBIDToStringDEBUG), reinterpret_cast<void**>(&m_realTDBIDToStringDEBUG)) != MH_OK ||
                 MH_EnableHook(pLocation) != MH_OK)
                 Log::Error("Could not hook RunningState::Run function!");
             else
@@ -254,7 +252,7 @@ void LuaVM::Hook(Options& aOptions)
 
         if (pLocation)
         {
-            if (MH_CreateHook(pLocation, &HookTranslateBytecode, reinterpret_cast<void**>(&m_realTranslateBytecode)) != MH_OK ||
+            if (MH_CreateHook(pLocation, reinterpret_cast<LPVOID>(HookTranslateBytecode), reinterpret_cast<void**>(&m_realTranslateBytecode)) != MH_OK ||
                 MH_EnableHook(pLocation) != MH_OK)
                 Log::Error("Could not hook ScriptBinder::TranslateBytecode function!");
             else
@@ -270,7 +268,7 @@ void LuaVM::Hook(Options& aOptions)
 
         if (pLocation)
         {
-            if (MH_CreateHook(pLocation, &HookTweakDBLoad, reinterpret_cast<void**>(&m_realTweakDBLoad)) != MH_OK ||
+            if (MH_CreateHook(pLocation, reinterpret_cast<LPVOID>(HookTweakDBLoad), reinterpret_cast<void**>(&m_realTweakDBLoad)) != MH_OK ||
                 MH_EnableHook(pLocation) != MH_OK)
                 Log::Error("Could not hook TweakDB::Load function!");
             else
@@ -298,6 +296,5 @@ void LuaVM::Hook(Options& aOptions)
     //        }
     //    }
     //}
-
 
 }
