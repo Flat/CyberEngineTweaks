@@ -1,9 +1,9 @@
 #include <stdafx.h>
 
-#include "CET.h"
 #include "LuaVM.h"
 
-#include <overlay/Overlay.h>
+#include <CET.h>
+
 #include <reverse/RTTILocator.h>
 
 void LuaVM::HookLog(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack, void*, void*)
@@ -12,8 +12,8 @@ void LuaVM::HookLog(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack, void*,
 
     RED4ext::CString text{};
 
-    apStack->data = 0;
-    apStack->dataType = 0;
+    apStack->data = nullptr;
+    apStack->dataType = nullptr;
 
     RED4ext::ScriptRef<RED4ext::CString> ref;
     ref.innerType = s_stringLocator;
@@ -21,7 +21,7 @@ void LuaVM::HookLog(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack, void*,
     ref.hash = ref.innerType->GetName();
 
     apStack->currentParam++;
-    const auto opcode = *(apStack->code++);
+    const auto opcode = *apStack->code++;
 
     RED4ext::OpcodeHandlers::Run(opcode, apStack->context, apStack, &ref, &ref);
     apStack->code++; // skip ParamEnd
@@ -35,9 +35,9 @@ void LuaVM::HookLogChannel(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack,
     static RED4ext::CName s_debugChannel("DEBUG");
 
     RED4ext::CName channel;
-    apStack->data = 0;
-    apStack->dataType = 0;
-    uint8_t opcode = *(apStack->code++);
+    apStack->data = nullptr;
+    apStack->dataType = nullptr;
+    uint8_t opcode = *apStack->code++;
     apStack->currentParam++;
 
     RED4ext::OpcodeHandlers::Run(opcode, apStack->context, apStack, &channel, nullptr);
@@ -52,7 +52,7 @@ void LuaVM::HookLogChannel(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack,
 
     apStack->data = nullptr;
     apStack->dataType = nullptr;
-    opcode = *(apStack->code++);
+    opcode = *apStack->code++;
     RED4ext::OpcodeHandlers::Run(opcode, apStack->context, apStack, &ref, &ref);
 
     apStack->code++; // skip ParamEnd
@@ -70,11 +70,11 @@ void LuaVM::HookLogChannel(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack,
     CET::Get().GetVM().m_logCount.fetch_add(1);
 }
 
-LuaVM::LuaVM(Paths& aPaths, VKBindings& aBindings, D3D12& aD3D12, Options& aOptions)
-    : m_scripting(aPaths, aBindings, aD3D12, aOptions)
+LuaVM::LuaVM(const Paths& aPaths, VKBindings& aBindings, D3D12& aD3D12)
+    : m_scripting(aPaths, aBindings, aD3D12)
     , m_d3d12(aD3D12)
 {
-    Hook(aOptions);
+    Hook();
 
     aBindings.SetVM(this);
     m_connectUpdate = aD3D12.OnUpdate.Connect([this]{ Draw(); });
@@ -88,7 +88,7 @@ LuaVM::~LuaVM()
 TDBID* LuaVM::HookTDBIDCtorDerive(TDBID* apBase, TDBID* apThis, const char* acpName)
 {
     auto& luavm = CET::Get().GetVM();
-    auto result = luavm.m_realTDBIDCtorDerive(apBase, apThis, acpName);
+    const auto result = luavm.m_realTDBIDCtorDerive(apBase, apThis, acpName);
     luavm.RegisterTDBIDString(apThis->value, apBase->value, std::string(acpName));
     return result;
 }
@@ -96,17 +96,17 @@ TDBID* LuaVM::HookTDBIDCtorDerive(TDBID* apBase, TDBID* apThis, const char* acpN
 void LuaVM::HookTDBIDToStringDEBUG(RED4ext::IScriptable*, RED4ext::CStackFrame* apStack, void* apResult, void*)
 {
     TDBID tdbid;
-    apStack->data = 0;
-    apStack->dataType = 0;
+    apStack->data = nullptr;
+    apStack->dataType = nullptr;
     apStack->currentParam++;
-    uint8_t opcode = *(apStack->code++);
+    const uint8_t opcode = *apStack->code++;
     RED4ext::OpcodeHandlers::Run(opcode, apStack->context, apStack, &tdbid, nullptr);
     apStack->code++; // skip ParamEnd
 
     if (apResult)
     {
-        std::string name = CET::Get().GetVM().GetTDBIDString(tdbid.value);
-        RED4ext::CString s(name.c_str());
+        const std::string name = CET::Get().GetVM().GetTDBIDString(tdbid.value);
+        const RED4ext::CString s(name.c_str());
         *static_cast<RED4ext::CString*>(apResult) = s;
     }
 }
@@ -117,7 +117,7 @@ bool LuaVM::HookRunningStateRun(uintptr_t aThis, uintptr_t aApp)
 
     const auto cNow = std::chrono::high_resolution_clock::now();
     const auto cDelta = cNow - luavm.m_lastframe;
-    auto cSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(cDelta);
+    const auto cSeconds = std::chrono::duration_cast<std::chrono::duration<float>>(cDelta);
 
     luavm.Update(cSeconds.count());
 
@@ -134,7 +134,7 @@ uintptr_t LuaVM::HookSetLoadingState(uintptr_t aThis, int aState)
 
     if (aState == 2)
     {
-        std::call_once(s_initBarrier, [&luavm]()
+        std::call_once(s_initBarrier, [&luavm]
         {
             luavm.PostInitializeMods();
         });
@@ -159,7 +159,7 @@ bool LuaVM::HookTranslateBytecode(uintptr_t aBinder, uintptr_t aData)
 
 uint64_t LuaVM::HookTweakDBLoad(uintptr_t aThis, uintptr_t aParam)
 {
-    auto& luavm = CET::Get().GetVM();
+    const auto& luavm = CET::Get().GetVM();
 
     const auto ret = luavm.m_realTweakDBLoad(aThis, aParam);
 
@@ -168,15 +168,15 @@ uint64_t LuaVM::HookTweakDBLoad(uintptr_t aThis, uintptr_t aParam)
     return ret;
 }
 
-void LuaVM::Hook(Options& aOptions)
+void LuaVM::Hook()
 {
     {
-        RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_Log);
+        const RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_Log);
         uint8_t* pLocation = func.GetAddr();
 
         if (pLocation)
         {
-            if (MH_CreateHook(pLocation, &HookLog, reinterpret_cast<void**>(&m_realLog)) != MH_OK ||
+            if (MH_CreateHook(pLocation, reinterpret_cast<void*>(&HookLog), reinterpret_cast<void**>(&m_realLog)) != MH_OK ||
                 MH_EnableHook(pLocation) != MH_OK)
                 Log::Error("Could not hook Log function!");
             else
@@ -185,12 +185,12 @@ void LuaVM::Hook(Options& aOptions)
     }
 
     {
-        RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_LogChannel);
+        const RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_LogChannel);
         uint8_t* pLocation = func.GetAddr();
 
         if (pLocation)
         {
-            if (MH_CreateHook(pLocation, &HookLogChannel, reinterpret_cast<void**>(&m_realLogChannel)) != MH_OK ||
+            if (MH_CreateHook(pLocation, reinterpret_cast<void*>(&HookLogChannel), reinterpret_cast<void**>(&m_realLogChannel)) != MH_OK ||
                 MH_EnableHook(pLocation) != MH_OK)
                 Log::Error("Could not hook LogChannel function!");
             else
@@ -199,12 +199,12 @@ void LuaVM::Hook(Options& aOptions)
     }
 
     {
-        RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_TDBIDConstructorDerive);
+        const RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_TDBIDConstructorDerive);
         uint8_t* pLocation = func.GetAddr();
 
         if (pLocation)
         {
-            if (MH_CreateHook(pLocation, &HookTDBIDCtorDerive, reinterpret_cast<void**>(&m_realTDBIDCtorDerive)) !=
+            if (MH_CreateHook(pLocation, reinterpret_cast<void*>(&HookTDBIDCtorDerive), reinterpret_cast<void**>(&m_realTDBIDCtorDerive)) !=
                 MH_OK ||
                 MH_EnableHook(pLocation) != MH_OK)
                 Log::Error("Could not hook TDBID::ctor[Derive] function!");
@@ -214,12 +214,12 @@ void LuaVM::Hook(Options& aOptions)
     }
 
     {
-        RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_ProcessRunningState);
+        const RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_ProcessRunningState);
         uint8_t* pLocation = func.GetAddr();
 
         if (pLocation)
         {
-            if (MH_CreateHook(pLocation, &HookRunningStateRun, reinterpret_cast<void**>(&m_realRunningStateRun)) !=
+            if (MH_CreateHook(pLocation, reinterpret_cast<void*>(&HookRunningStateRun), reinterpret_cast<void**>(&m_realRunningStateRun)) !=
                     MH_OK ||
                 MH_EnableHook(pLocation) != MH_OK)
                 Log::Error("Could not hook RunningState::Run function!");
@@ -231,7 +231,7 @@ void LuaVM::Hook(Options& aOptions)
     }
 
     {
-        RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_ToStringDEBUG);
+        const RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_ToStringDEBUG);
         uint8_t* pLocation = func.GetAddr();
 
         if (pLocation)
@@ -247,7 +247,7 @@ void LuaVM::Hook(Options& aOptions)
     }
 
     {
-        RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_TranslateBytecode);
+        const RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_TranslateBytecode);
         uint8_t* pLocation = func.GetAddr();
 
         if (pLocation)
@@ -263,7 +263,7 @@ void LuaVM::Hook(Options& aOptions)
     }
 
     {
-        RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_TweakDBLoad);
+        const RED4ext::RelocPtr<uint8_t> func(CyberEngineTweaks::Addresses::CScript_TweakDBLoad);
         uint8_t* pLocation = func.GetAddr();
 
         if (pLocation)

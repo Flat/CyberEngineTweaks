@@ -36,6 +36,7 @@
 #include <regex>
 #include <execution>
 #include <source_location>
+#include <compare>
 
 #include <atlcomcli.h>
 #include <d3d12.h>
