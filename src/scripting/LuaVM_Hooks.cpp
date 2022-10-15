@@ -159,7 +159,7 @@ bool LuaVM::HookTranslateBytecode(uintptr_t aBinder, uintptr_t aData)
 
 uint64_t LuaVM::HookTweakDBLoad(uintptr_t aThis, uintptr_t aParam)
 {
-    const auto& luavm = CET::Get().GetVM();
+    auto& luavm = CET::Get().GetVM();
 
     const auto ret = luavm.m_realTweakDBLoad(aThis, aParam);
 
