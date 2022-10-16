@@ -22,7 +22,6 @@
 #include <reverse/RED4Ext/ResourceDepot.h>
 #include <reverse/TweakDB/TweakDB.h>
 #include "reverse/TweakDB/ResourcesList.h"
-#include "reverse/TweakDB/TweakDBMetadata.h"
 
 #include <CET.h>
 #include <Utils.h>
@@ -468,9 +467,6 @@ void Scripting::PostInitializeTweakDB()
     auto& luaVm = lua.Get();
     sol::table luaGlobal = luaVm[m_global];
 
-    ResourcesList::Get()->Initialize();
-    TweakDBMetadata::Get()->Initialize();
-
     luaGlobal.new_usertype<TweakDB>("__TweakDB",
         sol::meta_function::construct, sol::no_constructor,
         "DebugStats", &TweakDB::DebugStats,
@@ -691,9 +687,7 @@ void Scripting::ReloadAllMods()
 
     m_sandbox.SetGameAvailable(previousGameAvailable);
 
-    if (ResourcesList::Get()->IsInitialized() && TweakDBMetadata::Get()->IsInitialized())
-        TriggerOnTweak();
-
+    TriggerOnTweak();
     TriggerOnInit();
 
     if (CET::Get().GetOverlay().IsEnabled())
